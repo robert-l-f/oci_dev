@@ -1,0 +1,18 @@
+version: 0.1
+component: build
+timeoutInSeconds: 600
+shell: bash
+steps:
+  - type: Command
+    name: "Build Ingest Function"
+    command: |
+      echo "Building Ingest function..."
+  - type: Command
+    name: "Build API Function"
+    command: |
+      echo "Building API function..."
+  - type: Command
+    name: "Build Dashboard"
+    command: |
+      echo "Building Streamlit dashboard..."
+
