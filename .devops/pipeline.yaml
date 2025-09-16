@@ -1,0 +1,16 @@
+version: 0.1
+component: devops
+name: QuipDashboardPipeline
+description: DevOps build pipeline for ingest, api, and dashboard
+variables:
+  - name: OCI_REPO
+    default: iad.ocir.io/idzq8ssq2axl/quipdashboard
+stages:
+  - name: BuildAll
+    description: Build and push function + dashboard images
+    type: Build
+    buildSpecFile: build_spec.yaml
+    workingDirectory: /
+    environmentVariables:
+      - name: OCI_REPO
+        value: iad.ocir.io/idzq8ssq2axl/quipdashboard
