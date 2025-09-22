@@ -1,18 +1,31 @@
 version: 0.1
 component: build
-timeoutInSeconds: 600
+timeoutInSeconds: 1200
 shell: bash
 steps:
   - type: Command
     name: "Build Ingest Function"
     command: |
       echo "Building Ingest function..."
+      docker build -t $OCI_REPO/ingest:latest app/ingest
+
   - type: Command
     name: "Build API Function"
     command: |
       echo "Building API function..."
+      docker build -t $OCI_REPO/api:latest app/api
+
   - type: Command
     name: "Build Dashboard"
     command: |
-      echo "Building Streamlit dashboard..."
+      echo "Building Dashboard container..."
+      docker build -t $OCI_REPO/dashboard:latest app/dashboard
+
+  - type: Command
+    name: "Push Images"
+    command: |
+      echo "Pushing all images to OCI Artifact Registry..."
+      docker push $OCI_REPO/ingest:latest
+      docker push $OCI_REPO/api:latest
+      docker push $OCI_REPO/dashboard:latest
 
