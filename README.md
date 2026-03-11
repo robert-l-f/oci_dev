@@ -1,193 +1,51 @@
-# OCI RAG Stack (MySQL HeatWave + OCI Functions)
+# OCI + MySQL HeatWave GenAI RAG Starter
 
-This repository is now purpose-built for **one project only**: deploy and run a minimal Retrieval-Augmented Generation (RAG) stack on OCI using:
+This repository now includes a working starter implementation for the architecture in Oracle's guide:
+**Build a RAG system with LangChain and MySQL HeatWave GenAI**.
 
-- **MySQL HeatWave** (vector storage in table JSON for starter workflow)
-- **OCI Functions** for ingest and question answering
-- **Terraform** for the minimum OCI network + Functions application resources
-- Optional **Streamlit dashboard** for manual testing
+## What is included
 
----
+- **`app/ingest`**: OCI Function that chunks source text and stores embeddings in MySQL.
+- **`app/api`**: OCI Function that embeds a question, retrieves similar chunks, and generates an answer.
+- **`app/dashboard`**: Streamlit stub app (optional UI layer).
+- **`terraform`**: existing infrastructure scaffold for OCI resources.
 
-## 1) Architecture
+## Flow
 
-1. `app/ingest` OCI Function receives documents.
-2. It chunks text with LangChain and writes chunk + embedding rows into MySQL.
-3. `app/api` OCI Function receives user question.
-4. It embeds the question, retrieves most similar chunks, and generates grounded answer with OpenAI chat model.
-5. Optional `app/dashboard` calls the API function.
+1. Send documents to **ingest** function (`/documents` or similar endpoint through API Gateway).
+2. The function splits text into chunks with `RecursiveCharacterTextSplitter`.
+3. Embeddings are generated with `OpenAIEmbeddings` and stored in `rag_chunks`.
+4. Send a user question to **api** function.
+5. The API function embeds the question, ranks stored chunks by cosine similarity, and sends context to `ChatOpenAI`. Ingest can replace existing chunks per `doc_id` to keep updates idempotent.
 
----
+## Environment variables
 
-## 2) Prerequisites
-
-- OCI tenancy + compartment
-- OCI CLI authenticated (`oci setup config`)
-- Terraform >= 1.5
-- Docker
-- Fn CLI (`fn version`)
-- Existing MySQL HeatWave instance and database/schema credentials
-- OpenAI API key
-
----
-
-## 3) Deploy minimum OCI resources with Terraform
-
-The Terraform in `terraform/` deploys only what is required to host OCI Functions in a private subnet:
-
-- VCN
-- Private subnet for Functions
-- NAT Gateway + Service Gateway + route table
-- Security list for egress
-- OCI Functions Application
-
-### Configure variables
-
-Edit `terraform/terraform.tfvars`:
-
-```hcl
-region           = "us-ashburn-1"
-compartment_ocid = "ocid1.compartment.oc1..replace_me"
-project_name     = "rag-stack"
-```
-
-### Apply
+Set these for both `app/ingest` and `app/api`:
 
 ```bash
-cd terraform
-terraform init
-terraform plan
-terraform apply
+MYSQL_HOST=<heatwave_or_mysql_host>
+MYSQL_PORT=3306
+MYSQL_USER=<user>
+MYSQL_PASSWORD=<password>
+MYSQL_DATABASE=<database>
+OPENAI_API_KEY=<api_key>
+EMBEDDING_MODEL=text-embedding-3-small
 ```
 
-Capture output values:
+Optional:
 
 ```bash
-terraform output functions_application_name
-terraform output functions_application_id
+CHUNK_SIZE=800
+CHUNK_OVERLAP=120
+TOP_K=4
+CHAT_MODEL=gpt-4o-mini
+CANDIDATE_POOL=200
+REPLACE_EXISTING_DOC=true
 ```
 
----
+## MySQL table
 
-## 4) Configure Fn context for OCI Functions
-
-Set your Fn context to your compartment/subnet/registry as appropriate for your tenancy:
-
-```bash
-fn update context oracle.compartment-id <compartment_ocid>
-fn update context api-url https://functions.<region>.oci.oraclecloud.com
-fn update context registry <region>.ocir.io/<tenancy-namespace>/<repo>
-```
-
-Use the Terraform output name as `<fn_app_name>`.
-
----
-
-## 5) Deploy functions
-
-Deploy each function from its folder:
-
-```bash
-cd app/ingest
-fn -v deploy --app <fn_app_name>
-
-cd ../api
-fn -v deploy --app <fn_app_name>
-```
-
-Get invoke endpoints:
-
-```bash
-fn list functions <fn_app_name>
-```
-
----
-
-## 6) Configure function environment variables
-
-Set the same DB + embedding env vars for both `ingest` and `api` functions:
-
-```bash
-fn config function <fn_app_name> ingest MYSQL_HOST <mysql_host>
-fn config function <fn_app_name> ingest MYSQL_PORT 3306
-fn config function <fn_app_name> ingest MYSQL_USER <mysql_user>
-fn config function <fn_app_name> ingest MYSQL_PASSWORD <mysql_password>
-fn config function <fn_app_name> ingest MYSQL_DATABASE <mysql_database>
-fn config function <fn_app_name> ingest OPENAI_API_KEY <openai_api_key>
-fn config function <fn_app_name> ingest EMBEDDING_MODEL text-embedding-3-small
-
-fn config function <fn_app_name> api MYSQL_HOST <mysql_host>
-fn config function <fn_app_name> api MYSQL_PORT 3306
-fn config function <fn_app_name> api MYSQL_USER <mysql_user>
-fn config function <fn_app_name> api MYSQL_PASSWORD <mysql_password>
-fn config function <fn_app_name> api MYSQL_DATABASE <mysql_database>
-fn config function <fn_app_name> api OPENAI_API_KEY <openai_api_key>
-fn config function <fn_app_name> api EMBEDDING_MODEL text-embedding-3-small
-```
-
-Optional tuning:
-
-```bash
-fn config function <fn_app_name> ingest CHUNK_SIZE 800
-fn config function <fn_app_name> ingest CHUNK_OVERLAP 120
-fn config function <fn_app_name> ingest REPLACE_EXISTING_DOC true
-
-fn config function <fn_app_name> api TOP_K 4
-fn config function <fn_app_name> api CANDIDATE_POOL 200
-fn config function <fn_app_name> api CHAT_MODEL gpt-4o-mini
-```
-
----
-
-## 7) Use the stack
-
-### Ingest sample content
-
-```bash
-cat <<'JSON' > ingest.json
-{
-  "documents": [
-    {
-      "id": "policy-remote-work-v1",
-      "text": "Employees may work remotely up to 3 days per week with manager approval.",
-      "metadata": {"source": "hr-policy"}
-    }
-  ]
-}
-JSON
-
-fn invoke <fn_app_name> ingest < ingest.json
-```
-
-### Ask a question
-
-```bash
-cat <<'JSON' > ask.json
-{
-  "question": "How many remote days are allowed?",
-  "top_k": 4
-}
-JSON
-
-fn invoke <fn_app_name> api < ask.json
-```
-
----
-
-## 8) Optional dashboard
-
-Run locally:
-
-```bash
-cd app/dashboard
-RAG_API_URL=<api-function-http-endpoint> streamlit run handler.py
-```
-
----
-
-## 9) Data model created by ingest function
-
-`app/ingest` auto-creates:
+`app/ingest` creates this table automatically if it does not exist:
 
 ```sql
 CREATE TABLE rag_chunks (
@@ -202,12 +60,49 @@ CREATE TABLE rag_chunks (
 );
 ```
 
----
+## Example payloads
 
-## 10) Notes for production hardening
+### Ingest
 
-- Use OCI Vault/Secrets for credentials.
-- Move from JSON embeddings to HeatWave vector-native type/indexing where available.
-- Put API Gateway + IAM auth in front of functions.
-- Add retry/dead-letter workflows for ingestion.
-- Add metrics, traces, and structured logs.
+```json
+{
+  "documents": [
+    {
+      "id": "employee-handbook-v1",
+      "text": "Long source content...",
+      "metadata": {
+        "source": "hr",
+        "lang": "en"
+      }
+    }
+  ]
+}
+```
+
+### Query
+
+```json
+{
+  "question": "What is the remote work policy?",
+  "top_k": 4
+}
+```
+
+## Deploying OCI Functions
+
+From each function folder (`app/ingest` and `app/api`):
+
+```bash
+fn build
+fn deploy --app <oci-fn-app-name>
+```
+
+Then configure environment variables in OCI Functions config (or via `fn config function`).
+
+## Notes for production hardening
+
+- Move embeddings and generation to **OCI Generative AI** or HeatWave-native embedding functions if required by policy.
+- Replace JSON embedding storage with HeatWave vector-native indexing where available.
+- Add authn/authz (IAM, JWT, or API Gateway policies).
+- Add retries, dead-letter handling, and ingestion idempotency.
+- Add observability (OCI Logging/Monitoring, traces, request IDs).
