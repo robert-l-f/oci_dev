@@ -1,6 +1,5 @@
 FROM fnproject/python:3.9
 WORKDIR /function
 ADD . /function/
-RUN pip install -no-cache-dir oci
+RUN pip install --no-cache-dir fdk mysql-connector-python langchain-openai
 CMD ["handler.handler"]
-
